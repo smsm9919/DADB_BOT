@@ -1,26 +1,84 @@
-# DOGEE_BOT_Z — Smart DOGE/USDT Bot (BingX Perp)
+# ==========================
+#  BOT — GOLD TRADER (BingX)
+#  Pair: XAU/USDT
+#  Risk: 30%   |   Leverage: 10x
+# ==========================
 
-بوت تداول ذكي لـ **DOGE/USDT** مبني على Flask + CCXT يعمل على Render.
-يدخل الصفقات **بنفس إشارة TradingView** (عبر Range Filter/TV بار) ثم يفعل منطق الذكاء:
-- قراءة الشموع (Doji/Pin/Engulfing + Fake Break)
-- مؤشرات: **RSI/ADX/+DI/-DI/DX/ATR**
-- TP1 + Breakeven + **ATR Trailing**
-- وضع **Smart Exit** للسوق العرضي (حماية ربح سريعة)
-- **Scale‑In** تدريجي مع قوة الترند
-- HUD لوجات واضحة + `/metrics` + keepalive
+# ===== API KEYS (BingX) =====
+BINGX_API_KEY=YOUR_KEY_HERE
+BINGX_API_SECRET=YOUR_SECRET_HERE
+BINGX_SUBACCOUNT_ID=
+BINGX_TESTNET=0
 
-> **تحذير:** التداول الحقيقي على مسؤوليتك. فعّل `LIVE_TRADING=true` فقط إذا كنت متأكدًا.
+# ===== Exchange Config =====
+EXCHANGE=bingx
+SYMBOL=XAU/USDT
+POSITION_MODE=oneway
+LEVERAGE=10
+TIMEFRAME=15m
 
-## التشغيل المحلي
-```bash
-pip install -r requirements.txt
-export FLASK_ENV=production
-python main.py
-```
+# ===== Risk Management =====
+RISK_ALLOC=0.30
+FINAL_CHUNK_QTY=2.0
+ACCOUNT_UTIL_MAX=0.75
+NOTIONAL_CAP=300
+MAX_TRADES_PER_HR=6
+COOLDOWN_AFTER_CLOSE_SEC=30
 
-## متغيرات البيئة (Render أو `.env`)
-انظر ملف **env.example** ثم ضعه في إعدادات Render Environment أو محليًا.
+# ===== Core Strategy =====
+ENTRY_RF_ONLY=0
+WAIT_NEXT_SIGNAL=1
+HUNTER_TREND_GATE_ADX=18
+ULTIMATE_MIN_CONFIDENCE=6.5
 
-## Render
-- ضع رابط الخدمة `RENDER_EXTERNAL_URL` بعد أول تشغيل.
-- ملف النشر: `render.yaml`
+# ===== Range Filter =====
+RF_PERIOD=14
+RF_MULT=3.0
+
+# ===== SMC / ICT =====
+ENABLE_SMC_OB=1
+ENABLE_SMC_FVG=1
+ENABLE_SMC_BOS=1
+ENABLE_SMC_ICT=1
+SMC_LOOKBACK=60
+SMC_MIN_DISP=0.0042
+FVG_MIN_GAP_PCT=0.15
+
+# ===== Golden Zones =====
+GZ_ENABLED=1
+GZ_ADX_GATE=20
+GZ_MIN_SCORE=6.5
+GZ_FIB_LOW=0.618
+GZ_FIB_HIGH=0.786
+GZ_VOL_MULT=1.3
+GZ_RSI_MA=9
+
+# ===== Footprint-Lite =====
+FP_ENABLED=1
+FP_IMB_THRESH=0.28
+FP_ABSORB_MULT=1.6
+FP_EXHAUST_WICK=0.60
+FP_STRONG_SCORE=1.2
+
+# ===== TP / Exit Management =====
+TP1_PCT_BASE=0.40
+TP2_PCT_BASE=0.90
+TP3_PCT_BASE=1.60
+TP_LADDER_QTY=40,35,25
+BREAKEVEN_AFTER=0.30
+TRAIL_ACTIVATE_PCT=1.20
+ATR_TRAIL_MULT=1.6
+
+# ===== Guards / Fees =====
+MAX_SPREAD_BPS=6.0
+FEES_TAKER_BPS=5.5
+SLIPPAGE_BPS_BASE=2.0
+SLIPPAGE_BPS_ATR_MULT=0.18
+SCALP_MIN_EDGE_BPS=12.0
+SCALP_MIN_STRENGTH=6.5
+SCALP_MAX_TP_PCT=1.2
+SCALP_ALLOW_ONLY_IF_POS=1
+
+# ===== Runtime =====
+LOOP_SLEEP_SEC=6.0
+PORT=5000

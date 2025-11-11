@@ -1,83 +1,33 @@
-services:
-  - type: web
-    name: sol-bybit-bot
-    env: python
-    plan: free
-    region: frankfurt
-    autoDeploy: true
-    buildCommand: pip install -r requirements.txt
-    startCommand: python main.py
-    healthCheckPath: /
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.10.14
-      - key: PORT
-        value: 5000
+envVars:
+  # ===== Exchange & Market =====
+  - key: EXCHANGE
+    value: bingx
+  - key: SYMBOL
+    value: XAU/USDT
+  - key: LEVERAGE
+    value: 10
+  - key: RISK_ALLOC
+    value: 0.30
+  - key: POSITION_MODE
+    value: oneway
+  - key: PORT
+    value: 5000
 
-      # السوق/الإعدادات
-      - key: SYMBOL
-        value: SOL/USDT:USDT
-      - key: INTERVAL
-        value: 15m
-      - key: LEVERAGE
-        value: 10
-      - key: POSITION_MODE
-        value: oneway
-      - key: RISK_ALLOC
-        value: "0.60"
+  # ===== BingX API (ضع القيم من لوحة Render) =====
+  - key: BINGX_API_KEY
+    sync: false
+  - key: BINGX_API_SECRET
+    sync: false
+  # (اختياري) لو بتستخدم Sub-Account أو Testnet
+  - key: BINGX_SUBACCOUNT_ID
+    sync: false
+  - key: BINGX_TESTNET
+    value: "0"   # 1 = Testnet, 0 = Live
 
-      # Range Filter (LIVE)
-      - key: RF_SOURCE
-        value: close
-      - key: RF_PERIOD
-        value: "20"
-      - key: RF_MULT
-        value: "3.5"
-      - key: RF_LIVE_ONLY
-        value: "true"
-      - key: RF_HYST_BPS
-        value: "6"
-
-      # مؤشرات
-      - key: RSI_LEN
-        value: "14"
-      - key: ADX_LEN
-        value: "14"
-      - key: ATR_LEN
-        value: "14"
-      - key: MAX_SPREAD_BPS
-        value: "8"
-
-      # إدارة الصفقة
-      - key: TP1_PCT_BASE
-        value: "0.40"
-      - key: TP1_CLOSE_FRAC
-        value: "0.50"
-      - key: BREAKEVEN_AFTER
-        value: "0.30"
-      - key: TRAIL_ACTIVATE_PCT
-        value: "1.20"
-      - key: ATR_TRAIL_MULT
-        value: "1.6"
-
-      # حمايات الكمية/الإغلاق
-      - key: FINAL_CHUNK_QTY
-        value: "0.2"
-      - key: RESIDUAL_MIN_QTY
-        value: "0.05"
-
-      # مضاد الفليب-فلوب/الريتم
-      - key: COOLDOWN_SEC
-        value: "90"
-      - key: MAX_TRADES_PER_HOUR
-        value: "6"
-
-      # أسرار Bybit (ضِفها من Secrets)
-      - key: BYBIT_API_KEY
-        sync: false
-      - key: BYBIT_API_SECRET
-        sync: false
-
-      # Keepalive اختياري (اتركه فاضي لو مش محتاج)
-      - key: SELF_URL
-        value: ""
+  # ===== Ops / Guards (اختياري) =====
+  - key: FINAL_CHUNK_QTY
+    value: "2.0"
+  - key: WAIT_NEXT_SIGNAL
+    value: "1"
+  - key: LOOP_SLEEP_SEC
+    value: "6.0"

@@ -1,33 +1,44 @@
-envVars:
-  # ===== Exchange & Market =====
-  - key: EXCHANGE
-    value: bingx
-  - key: SYMBOL
-    value: XAU/USDT
-  - key: LEVERAGE
-    value: 10
-  - key: RISK_ALLOC
-    value: 0.30
-  - key: POSITION_MODE
-    value: oneway
-  - key: PORT
-    value: 5000
+services:
+  - type: web
+    name: gold-bot-bingx
+    env: python
+    plan: free
+    autoDeploy: true
 
-  # ===== BingX API (ضع القيم من لوحة Render) =====
-  - key: BINGX_API_KEY
-    sync: false
-  - key: BINGX_API_SECRET
-    sync: false
-  # (اختياري) لو بتستخدم Sub-Account أو Testnet
-  - key: BINGX_SUBACCOUNT_ID
-    sync: false
-  - key: BINGX_TESTNET
-    value: "0"   # 1 = Testnet, 0 = Live
+    buildCommand: pip install -r requirements.txt
+    startCommand: python "dhb bingx.py"
 
-  # ===== Ops / Guards (اختياري) =====
-  - key: FINAL_CHUNK_QTY
-    value: "2.0"
-  - key: WAIT_NEXT_SIGNAL
-    value: "1"
-  - key: LOOP_SLEEP_SEC
-    value: "6.0"
+    envVars:
+      # ===== Exchange & Market =====
+      - key: EXCHANGE
+        value: bingx
+      - key: SYMBOL
+        value: XAU/USDT
+      - key: TIMEFRAME
+        value: 15m
+      - key: POSITION_MODE
+        value: oneway
+      - key: LEVERAGE
+        value: 10
+      - key: RISK_ALLOC
+        value: 0.30
+      - key: PORT
+        value: 5000
+
+      # ===== BingX API (اضف القيم من لوحة Render) =====
+      - key: BINGX_API_KEY
+        sync: false
+      - key: BINGX_API_SECRET
+        sync: false
+      - key: BINGX_SUBACCOUNT_ID
+        sync: false
+      - key: BINGX_TESTNET
+        value: "0"
+
+      # ===== Runtime (اختياري) =====
+      - key: FINAL_CHUNK_QTY
+        value: "2.0"
+      - key: WAIT_NEXT_SIGNAL
+        value: "1"
+      - key: LOOP_SLEEP_SEC
+        value: "6.0"

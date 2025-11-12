@@ -1,11 +1,12 @@
 services:
-  - type: worker
+  - type: web
     name: gold-bot-bingx
     env: python
     plan: free
     autoDeploy: true
+
     buildCommand: pip install -r requirements.txt
-    startCommand: python main.py     # سيبه زي القديم
+    startCommand: python "dhb bingx.py"
 
     envVars:
       - key: EXCHANGE
@@ -21,8 +22,9 @@ services:
       - key: PORT
         value: 5000
 
-      # مفاتيح BingX بنفس الأسماء القديمة
-      - key: API_KEY
+      - key: BINGX_API_KEY
         sync: false
-      - key: API_SECRET
+      - key: BINGX_API_SECRET
         sync: false
+      - key: BINGX_TESTNET
+        value: "0"

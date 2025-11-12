@@ -97,7 +97,7 @@ ABSORPTION_RATIO = 0.65
 EFFICIENCY_THRESHOLD = 0.85
 
 # =================== SETTINGS ===================
-SYMBOL     = "XAU-USDT"  # Gold vs USDT - BingX correct format
+SYMBOL     = os.getenv("SYMBOL", "XAU-USDT").strip()  # Gold vs USDT - سيتم التصحيح تلقائياً
 INTERVAL   = os.getenv("INTERVAL", "15m")
 LEVERAGE   = int(os.getenv("LEVERAGE", 10))
 RISK_ALLOC = float(os.getenv("RISK_ALLOC", 0.30))  # 30% risk allocation
@@ -237,6 +237,83 @@ def make_ex():
 
 ex = make_ex()
 
+# =================== SMART SYMBOL DETECTION ===================
+def detect_correct_symbol():
+    """اكتشاف الرمز الصحيح للذهب في BingX تلقائياً"""
+    try:
+        ex.load_markets()
+        available_symbols = list(ex.markets.keys())
+        
+        # قائمة بالرموز المحتملة للذهب في BingX
+        gold_candidates = [
+            "XAUT/USDT:USDT",  # Perpetual futures
+            "XAUT/USDT",       # Spot
+            "XAU/USDT:USDT",   # Alternative format
+            "XAU/USDT",        # Alternative format
+            "GOLD/USDT",       # Alternative name
+            "GOLD/USDT:USDT"   # Alternative name
+        ]
+        
+        # البحث عن الرمز المناسب
+        selected_symbol = None
+        for candidate in gold_candidates:
+            if candidate in available_symbols:
+                selected_symbol = candidate
+                log_g(f"✅ تم اكتشاف الرمز الصحيح: {candidate}")
+                break
+        
+        if not selected_symbol:
+            # إذا لم نجد رمزاً محدداً، نبحث عن أي رمز يحتوي على XAU أو XAUT
+            xau_symbols = [sym for sym in available_symbols if 'XAU' in sym or 'XAUT' in sym or 'GOLD' in sym]
+            if xau_symbols:
+                selected_symbol = xau_symbols[0]
+                log_g(f"✅ تم اختيار الرمز: {selected_symbol} من الرموز المتاحة")
+            else:
+                log_e("❌ لم يتم العثور على أي رمز للذهب في المنصة")
+                return None
+        
+        # التحقق من نوع الرمز (سبوت أو عقود آجلة)
+        market_info = ex.markets.get(selected_symbol, {})
+        market_type = market_info.get('type', 'unknown')
+        
+        log_i(f"📊 نوع الرمز: {market_type}")
+        log_i(f"📋 الرموز المتاحة للذهب: {[s for s in available_symbols if 'XAU' in s or 'XAUT' in s or 'GOLD' in s]}")
+        
+        return selected_symbol
+        
+    except Exception as e:
+        log_e(f"❌ خطأ في اكتشاف الرمز: {e}")
+        return None
+
+def get_correct_symbol():
+    """الحصول على الرمز الصحيح مع التحقق"""
+    global SYMBOL
+    try:
+        # التحقق من أن الرمز الموجود صالح
+        ex.load_markets()
+        if SYMBOL in ex.markets:
+            return SYMBOL
+        else:
+            # إعادة الاكتشاف إذا كان الرمز غير صالح
+            correct_symbol = detect_correct_symbol()
+            if correct_symbol:
+                SYMBOL = correct_symbol
+                return SYMBOL
+            else:
+                log_e("❌ لا يوجد رمز صالح متاح")
+                return None
+    except Exception as e:
+        log_w(f"get_correct_symbol error: {e}")
+        return SYMBOL  # الرجوع للرمز الحالي في حالة الخطأ
+
+# اكتشاف الرمز الصحيح تلقائياً
+CORRECT_SYMBOL = detect_correct_symbol()
+if CORRECT_SYMBOL:
+    SYMBOL = CORRECT_SYMBOL
+    log_g(f"🎯 تم تعيين الرمز النهائي: {SYMBOL}")
+else:
+    log_w("⚠️ استخدام الرمز الافتراضي بسبب فشل الاكتشاف")
+
 # =================== MARKET SPECS ENHANCEMENT ===================
 MARKET = {}
 AMT_PREC = 0
@@ -248,8 +325,17 @@ QTY_STEP = 3
 def load_market_specs():
     global MARKET, AMT_PREC, LOT_STEP, LOT_MIN, MIN_QTY_EX, QTY_STEP
     try:
+        symbol_to_use = get_correct_symbol()
+        if not symbol_to_use:
+            log_e("❌ لا يمكن تحميل مواصفات السوق - رمز غير صالح")
+            return
+            
         ex.load_markets()
-        MARKET = ex.markets.get(SYMBOL, {})
+        MARKET = ex.markets.get(symbol_to_use, {})
+        
+        if not MARKET:
+            log_e(f"❌ الرمز {symbol_to_use} غير موجود في السوق")
+            return
         
         # الحصول على حدود السوق بدقة
         limits = MARKET.get("limits", {}) or {}
@@ -264,7 +350,7 @@ def load_market_specs():
         MIN_QTY_EX = LOT_MIN
         QTY_STEP = precision_info.get("amount")  # عدد الخانات العشرية
         
-        log_i(f"🎯 {SYMBOL} specs → precision={AMT_PREC}, step={LOT_STEP}, min={LOT_MIN}")
+        log_i(f"🎯 {symbol_to_use} specs → precision={AMT_PREC}, step={LOT_STEP}, min={LOT_MIN}")
         log_i(f"📊 Market limits: min={MIN_QTY_EX:.8f} | step={QTY_STEP}")
         
     except Exception as e:
@@ -275,10 +361,15 @@ def load_market_specs():
 
 def ensure_leverage_mode():
     try:
+        symbol_to_use = get_correct_symbol()
+        if not symbol_to_use:
+            log_e("❌ لا يمكن ضبط الرافعة - رمز غير صالح")
+            return
+            
         # Set isolated margin mode first
-        exchange_set_margin_mode(ex, SYMBOL, "isolated")
+        exchange_set_margin_mode(ex, symbol_to_use, "isolated")
         # Then set leverage
-        exchange_set_leverage(ex, LEVERAGE, SYMBOL)
+        exchange_set_leverage(ex, LEVERAGE, symbol_to_use)
         log_i(f"📊 BINGX position mode: {POSITION_MODE} | Margin: ISOLATED")
     except Exception as e:
         log_w(f"ensure_leverage_mode: {e}")
@@ -290,24 +381,16 @@ def verify_symbol():
         log_i(f"✅ Exchange loaded successfully")
         
         # عرض جميع الرموز المتاحة التي تحتوي على XAU
-        xau_symbols = [sym for sym in ex.markets.keys() if 'XAU' in sym]
+        xau_symbols = [sym for sym in ex.markets.keys() if 'XAU' in sym or 'XAUT' in sym or 'GOLD' in sym]
         log_i(f"📋 Available XAU symbols: {xau_symbols}")
         
         # التحقق من الرمز المحدد
-        if SYMBOL in ex.markets:
-            log_g(f"✅ Symbol {SYMBOL} is valid and available")
+        symbol_to_use = get_correct_symbol()
+        if symbol_to_use and symbol_to_use in ex.markets:
+            log_g(f"✅ Symbol {symbol_to_use} is valid and available")
             return True
         else:
-            log_e(f"❌ Symbol {SYMBOL} not found in available markets")
-            log_w(f"🔄 Trying alternative symbol formats...")
-            
-            # محاولة تنسيقات بديلة
-            alternatives = ["XAUUSDT", "XAU_USDT", "GOLD-USDT"]
-            for alt in alternatives:
-                if alt in ex.markets:
-                    log_g(f"✅ Alternative symbol found: {alt}")
-                    return alt
-            
+            log_e(f"❌ Symbol {symbol_to_use} not found in available markets")
             return False
             
     except Exception as e:
@@ -338,6 +421,12 @@ def _to_precision(q, decimals):
 def compute_size_enhanced(balance, price):
     """حساب الكمية مع التحقق من الحدود"""
     try:
+        # التحقق من الرمز أولاً
+        symbol_to_use = get_correct_symbol()
+        if not symbol_to_use:
+            log_e("❌ لا يمكن حساب الكمية - رمز غير صالح")
+            return 0.0
+
         if not balance or not price or price <= 0:
             log_e("❌ Invalid balance or price for size calculation")
             return 0.0
@@ -388,8 +477,9 @@ def safe_qty(q):
             
         # استخدام تقريب CCXT المباشر إذا كان متاحًا
         try:
-            if hasattr(ex, 'amount_to_precision'):
-                qty_str = ex.amount_to_precision(SYMBOL, q)
+            symbol_to_use = get_correct_symbol()
+            if hasattr(ex, 'amount_to_precision') and symbol_to_use:
+                qty_str = ex.amount_to_precision(symbol_to_use, q)
                 qty_ccxt = float(qty_str)
                 if qty_ccxt > 0:
                     return qty_ccxt
@@ -448,17 +538,19 @@ def exchange_specific_params(side, is_close=False):
 def exchange_set_leverage(exchange, leverage, symbol):
     """BingX leverage setting"""
     try:
-        exchange.set_leverage(leverage, symbol, params={"side": "BOTH"})
-        log_g(f"✅ BINGX leverage set: {leverage}x")
+        symbol_to_use = get_correct_symbol() or symbol
+        exchange.set_leverage(leverage, symbol_to_use, params={"side": "BOTH"})
+        log_g(f"✅ BINGX leverage set: {leverage}x for {symbol_to_use}")
     except Exception as e:
         log_w(f"⚠️ set_leverage warning: {e}")
 
 def exchange_set_margin_mode(exchange, symbol, margin_mode="isolated"):
     """Set margin mode to isolated"""
     try:
+        symbol_to_use = get_correct_symbol() or symbol
         if hasattr(exchange, 'set_margin_mode'):
-            exchange.set_margin_mode(margin_mode, symbol)
-            log_g(f"✅ BINGX margin mode set: {margin_mode}")
+            exchange.set_margin_mode(margin_mode, symbol_to_use)
+            log_g(f"✅ BINGX margin mode set: {margin_mode} for {symbol_to_use}")
     except Exception as e:
         log_w(f"⚠️ set_margin_mode warning: {e}")
 
@@ -551,9 +643,10 @@ def compute_candles(df):
 # =================== EXECUTION VERIFICATION ===================
 def verify_execution_environment():
     """التحقق من بيئة التنفيذ عند الإقلاع"""
+    symbol_to_use = get_correct_symbol() or SYMBOL
     print(f"⚙️ EXECUTION ENVIRONMENT", flush=True)
-    print(f"🔧 EXCHANGE: {EXCHANGE_NAME.upper()} | SYMBOL: {SYMBOL}", flush=True)
-    print(f"🔧 EXECUTE_ORDERS: {EXECUTE_ORDERS} | DRY_RUN: {DRY_RUN}", flush=True)
+    print(f"🔧 EXCHANGE: {EXCHANGE_NAME.upper()} • SYMBOL: {symbol_to_use} • TIMEFRAME: {INTERVAL}", flush=True)
+    print(f"🔧 EXECUTE_ORDERS: {EXECUTE_ORDERS} • DRY_RUN: {DRY_RUN}", flush=True)
     print(f"🎯 PROFESSIONAL COUNCIL: min_confidence={ULTIMATE_MIN_CONFIDENCE}", flush=True)
     print(f"📈 ADVANCED INDICATORS: SMC + MACD + VWAP + Volume Momentum", flush=True)
     print(f"👣 SMART MONEY CONCEPTS: BOS + Order Blocks + FVG + Liquidity Analysis", flush=True)
@@ -1943,10 +2036,15 @@ def execute_professional_trade(side, price, qty, council_data):
           f"{execution_note}{ob_note}", flush=True)
 
     try:
+        symbol_to_use = get_correct_symbol()
+        if not symbol_to_use:
+            log_e("❌ لا يمكن تنفيذ الصفقة - رمز غير صالح")
+            return False
+            
         if MODE_LIVE:
-            exchange_set_leverage(ex, LEVERAGE, SYMBOL)
+            exchange_set_leverage(ex, LEVERAGE, symbol_to_use)
             params = exchange_specific_params(side, is_close=False)
-            ex.create_order(SYMBOL, "market", side, qty, None, params)
+            ex.create_order(symbol_to_use, "market", side, qty, None, params)
         
         log_g(f"✅ EXECUTED PROFESSIONAL: {side.upper()} {qty:.4f} @ {price:.6f}")
         
@@ -1968,11 +2066,12 @@ def _normalize_side(pos):
 
 def fetch_live_position(exchange, symbol: str):
     try:
+        symbol_to_use = get_correct_symbol() or symbol
         if hasattr(exchange, "fetch_positions"):
-            arr = exchange.fetch_positions([symbol])
+            arr = exchange.fetch_positions([symbol_to_use])
             for p in arr or []:
                 sym = p.get("symbol") or p.get("info", {}).get("symbol")
-                if sym and symbol.replace(":","") in sym.replace(":",""):
+                if sym and symbol_to_use.replace(":","") in sym.replace(":",""):
                     side = _normalize_side(p)
                     qty = abs(float(p.get("contracts") or p.get("positionAmt") or p.get("info",{}).get("size",0) or 0))
                     if qty > 0:
@@ -1981,7 +2080,7 @@ def fetch_live_position(exchange, symbol: str):
                         unr = float(p.get("unrealizedPnl") or 0.0)
                         return {"ok": True, "side": side, "qty": qty, "entry": entry, "unrealized": unr, "leverage": lev, "raw": p}
         if hasattr(exchange, "fetch_position"):
-            p = exchange.fetch_position(symbol)
+            p = exchange.fetch_position(symbol_to_use)
             side = _normalize_side(p); qty = abs(float(p.get("size") or 0))
             if qty > 0:
                 entry = float(p.get("entryPrice") or 0.0)
@@ -2076,12 +2175,21 @@ def with_retry(fn, tries=3, base_wait=0.4):
             time.sleep(base_wait*(2**i) + random.random()*0.25)
 
 def fetch_ohlcv(limit=600):
-    rows = with_retry(lambda: ex.fetch_ohlcv(SYMBOL, timeframe=INTERVAL, limit=limit, params={"type":"swap"}))
+    symbol_to_use = get_correct_symbol()
+    if not symbol_to_use:
+        log_e("❌ لا يمكن جلب البيانات - رمز غير صالح")
+        return pd.DataFrame()
+        
+    rows = with_retry(lambda: ex.fetch_ohlcv(symbol_to_use, timeframe=INTERVAL, limit=limit, params={"type":"swap"}))
     return pd.DataFrame(rows, columns=["time","open","high","low","close","volume"])
 
 def price_now():
     try:
-        t = with_retry(lambda: ex.fetch_ticker(SYMBOL))
+        symbol_to_use = get_correct_symbol()
+        if not symbol_to_use:
+            return None
+            
+        t = with_retry(lambda: ex.fetch_ticker(symbol_to_use))
         return t.get("last") or t.get("close")
     except Exception: return None
 
@@ -2094,7 +2202,11 @@ def balance_usdt():
 
 def orderbook_spread_bps():
     try:
-        ob = with_retry(lambda: ex.fetch_order_book(SYMBOL, limit=5))
+        symbol_to_use = get_correct_symbol()
+        if not symbol_to_use:
+            return None
+            
+        ob = with_retry(lambda: ex.fetch_order_book(symbol_to_use, limit=5))
         bid = ob["bids"][0][0] if ob["bids"] else None
         ask = ob["asks"][0][0] if ob["asks"] else None
         if not (bid and ask): return None
@@ -2128,7 +2240,8 @@ def fmt_walls(walls):
 # ========= Bookmap snapshot =========
 def bookmap_snapshot(exchange, symbol, depth=BOOKMAP_DEPTH):
     try:
-        ob = exchange.fetch_order_book(symbol, depth)
+        symbol_to_use = get_correct_symbol() or symbol
+        ob = exchange.fetch_order_book(symbol_to_use, depth)
         bids = ob.get("bids", [])[:depth]; asks = ob.get("asks", [])[:depth]
         if not bids or not asks:
             return {"ok": False, "why": "empty"}
@@ -2432,10 +2545,14 @@ def wait_gate_allow(df, info):
 # =================== ORDERS ===================
 def _read_position():
     try:
+        symbol_to_use = get_correct_symbol()
+        if not symbol_to_use:
+            return 0.0, None, None
+            
         poss = ex.fetch_positions(params={"type":"swap"})
         for p in poss:
             sym = (p.get("symbol") or p.get("info",{}).get("symbol") or "")
-            if SYMBOL.split(":")[0] not in sym: continue
+            if symbol_to_use.split(":")[0] not in sym: continue
             qty = abs(float(p.get("contracts") or p.get("info",{}).get("positionAmt") or 0))
             if qty <= 0: return 0.0, None, None
             entry = float(p.get("entryPrice") or p.get("info",{}).get("avgEntryPrice") or 0)
@@ -2461,9 +2578,14 @@ def close_market_strict(reason="STRICT"):
     attempts=0; last_error=None
     while attempts < CLOSE_RETRY_ATTEMPTS:
         try:
+            symbol_to_use = get_correct_symbol()
+            if not symbol_to_use:
+                log_e("❌ لا يمكن إغلاق الصفقة - رمز غير صالح")
+                break
+                
             if MODE_LIVE and EXECUTE_ORDERS and not DRY_RUN:
                 params = exchange_specific_params(side_to_close, is_close=True)
-                ex.create_order(SYMBOL,"market",side_to_close,qty_to_close,None,params)
+                ex.create_order(symbol_to_use,"market",side_to_close,qty_to_close,None,params)
             time.sleep(CLOSE_VERIFY_WAIT_S)
             left_qty, _, _ = _read_position()
             if left_qty <= 0:
@@ -2521,8 +2643,13 @@ def manage_after_entry_professional(df, ind, info):
             close_side = "sell" if STATE["side"] == "long" else "buy"
             if MODE_LIVE and EXECUTE_ORDERS and not DRY_RUN:
                 try:
+                    symbol_to_use = get_correct_symbol()
+                    if not symbol_to_use:
+                        log_e("❌ لا يمكن جني الأرباح - رمز غير صالح")
+                        return
+                        
                     params = exchange_specific_params(close_side, is_close=True)
-                    ex.create_order(SYMBOL, "market", close_side, close_qty, None, params)
+                    ex.create_order(symbol_to_use, "market", close_side, close_qty, None, params)
                     log_g(f"✅ جني أرباح: {close_fraction*100}% عند {management_signal['tp_level']:.2f}%")
                     STATE["qty"] = safe_qty(STATE["qty"] - close_qty)
                     STATE["profit_targets_achieved"] = management_signal.get("new_achieved_tps", STATE["profit_targets_achieved"] + 1)
@@ -2571,8 +2698,13 @@ def manage_after_entry_enhanced(df, ind, info):
             close_side = "sell" if side == "long" else "buy"
             if MODE_LIVE and EXECUTE_ORDERS and not DRY_RUN:
                 try:
+                    symbol_to_use = get_correct_symbol()
+                    if not symbol_to_use:
+                        log_e("❌ لا يمكن الإغلاق الجزئي - رمز غير صالح")
+                        return
+                        
                     params = exchange_specific_params(close_side, is_close=True)
-                    ex.create_order(SYMBOL, "market", close_side, partial_qty, None, params)
+                    ex.create_order(symbol_to_use, "market", close_side, partial_qty, None, params)
                     log_g(f"✅ PARTIAL CLOSE: {partial_qty:.4f} | {exit_signal['why']}")
                     STATE["partial_taken"] = True
                     STATE["qty"] = safe_qty(qty - partial_qty)
@@ -2604,8 +2736,13 @@ def manage_after_entry_enhanced(df, ind, info):
             close_side = "sell" if STATE["side"] == "long" else "buy"
             if MODE_LIVE and EXECUTE_ORDERS and not DRY_RUN:
                 try:
+                    symbol_to_use = get_correct_symbol()
+                    if not symbol_to_use:
+                        log_e("❌ لا يمكن تنفيذ TP1 - رمز غير صالح")
+                        return
+                        
                     params = exchange_specific_params(close_side, is_close=True)
-                    ex.create_order(SYMBOL, "market", close_side, close_qty, None, params)
+                    ex.create_order(symbol_to_use, "market", close_side, close_qty, None, params)
                     log_g(f"✅ TP1 HIT: closed {close_fraction*100}%")
                 except Exception as e:
                     log_e(f"❌ TP1 close failed: {e}")
@@ -2920,14 +3057,16 @@ trade_loop = trade_loop_professional_with_smc
 app = Flask(__name__)
 @app.route("/")
 def home():
+    symbol_to_use = get_correct_symbol() or SYMBOL
     mode='LIVE' if MODE_LIVE else 'PAPER'
-    return f"✅ XAU Council PROFESSIONAL Bot — BINGX — {SYMBOL} {INTERVAL} — {mode} — Gold Trading"
+    return f"✅ XAU Council PROFESSIONAL Bot — BINGX — {symbol_to_use} {INTERVAL} — {mode} — Gold Trading"
 
 @app.route("/metrics")
 def metrics():
+    symbol_to_use = get_correct_symbol() or SYMBOL
     return jsonify({
         "exchange": EXCHANGE_NAME,
-        "symbol": SYMBOL, "interval": INTERVAL, "mode": "live" if MODE_LIVE else "paper",
+        "symbol": symbol_to_use, "interval": INTERVAL, "mode": "live" if MODE_LIVE else "paper",
         "leverage": LEVERAGE, "risk_alloc": RISK_ALLOC, "price": price_now(),
         "state": STATE, "compound_pnl": compound_pnl,
         "entry_mode": "PROFESSIONAL_COUNCIL_WITH_SMC", "wait_for_next_signal": wait_for_next_signal_side,
@@ -2969,14 +3108,33 @@ MIN_QTY_OVERRIDE = float(os.getenv("MIN_QTY_OVERRIDE", "0"))
 if MIN_QTY_OVERRIDE > 0:
     log_i(f"🎯 Using quantity override: {MIN_QTY_OVERRIDE}")
 
+# =================== FINAL SYMBOL VERIFICATION ===================
+def final_symbol_verification():
+    """تحقق نهائي من صحة الرمز قبل تشغيل البوت"""
+    log_i("🔍 التحقق النهائي من إعدادات الرمز...")
+    
+    symbol_to_use = get_correct_symbol()
+    if not symbol_to_use:
+        log_e("❌ فشل التحقق من الرمز - إيقاف البوت")
+        return False
+    
+    log_g(f"✅ الرمز النهائي المعتمد: {symbol_to_use}")
+    
+    # تحميل مواصفات السوق للتأكد
+    try:
+        load_market_specs()
+        return True
+    except Exception as e:
+        log_e(f"❌ فشل تحميل مواصفات السوق: {e}")
+        return False
+
 # =================== BOOT ===================
 if __name__ == "__main__":
     log_banner("XAU COUNCIL PROFESSIONAL BOT - SMART MONEY CONCEPTS")
     
-    # التحقق من صحة الرمز أولاً
-    symbol_valid = verify_symbol()
-    if not symbol_valid:
-        log_e("❌ Invalid symbol configuration. Please check SYMBOL setting.")
+    # التحقق النهائي من الرمز أولاً
+    if not final_symbol_verification():
+        log_e("❌ فشل التحقق النهائي - إيقاف البوت")
         sys.exit(1)
     
     state = load_state() or {}
@@ -2984,13 +3142,15 @@ if __name__ == "__main__":
 
     if RESUME_ON_RESTART:
         try:
-            state = resume_open_position(ex, SYMBOL, state)
+            symbol_to_use = get_correct_symbol() or SYMBOL
+            state = resume_open_position(ex, symbol_to_use, state)
         except Exception as e:
             log_w(f"resume error: {e}\n{traceback.format_exc()}")
 
     verify_execution_environment()
 
-    print(colored(f"🎯 EXCHANGE: {EXCHANGE_NAME.upper()} • SYMBOL: {SYMBOL} • TIMEFRAME: {INTERVAL}", "yellow"))
+    symbol_to_use = get_correct_symbol() or SYMBOL
+    print(colored(f"🎯 EXCHANGE: {EXCHANGE_NAME.upper()} • SYMBOL: {symbol_to_use} • TIMEFRAME: {INTERVAL}", "yellow"))
     print(colored(f"⚡ RISK: {int(RISK_ALLOC*100)}% × {LEVERAGE}x • PROFESSIONAL_COUNCIL=ENABLED", "yellow"))
     print(colored(f"🏆 PROFESSIONAL MIN CONFIDENCE: {ULTIMATE_MIN_CONFIDENCE}", "yellow"))
     print(colored(f"📊 SMART MONEY CONCEPTS: BOS + Order Blocks + FVG + Liquidity Analysis", "yellow"))

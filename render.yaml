@@ -22,9 +22,18 @@ services:
       - key: PORT
         value: 5000
 
+      # --- BingX API keys ---
       - key: BINGX_API_KEY
         sync: false
       - key: BINGX_API_SECRET
         sync: false
       - key: BINGX_TESTNET
         value: "0"
+
+      # --- optional runtime ---
+      - key: FINAL_CHUNK_QTY
+        value: "2.0"
+      - key: WAIT_NEXT_SIGNAL
+        value: "1"
+      - key: LOOP_SLEEP_SEC
+        value: "6.0"

@@ -13,7 +13,7 @@ services:
       - key: EXCHANGE
         value: bingx
       - key: SYMBOL
-        value: XAU/USDT
+        value: XAUTUSDT
       - key: TIMEFRAME
         value: 15m
       - key: POSITION_MODE

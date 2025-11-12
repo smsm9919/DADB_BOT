@@ -1,14 +1,15 @@
-
+services:
   - type: web
-    name: sol-bybit-bot          # خليه نفس الاسم القديم
+    name: gold-bot-bingx
     env: python
     plan: free
     autoDeploy: true
 
     buildCommand: pip install -r requirements.txt
-    startCommand: python "dhb bingx.py"   # غيّرها لاسم سكربت الذهب عندك لو مختلف
+    startCommand: python "dhb bingx.py"
 
     envVars:
+      # ===== Exchange & Market =====
       - key: EXCHANGE
         value: bingx
       - key: SYMBOL
@@ -24,13 +25,13 @@
       - key: PORT
         value: 5000
 
-      # مفاتيح BingX بالأسماء اللي الكود بيقرأها
-      - key: API_KEY          # أو BINGX_API_KEY لو الكود بيستخدمها
+      # ===== BingX API Keys (أدخل القيم من Dashboard) =====
+      - key: BINGX_API_KEY
         sync: false
-      - key: API_SECRET       # أو BINGX_API_SECRET
+      - key: BINGX_API_SECRET
         sync: false
 
-      # اختياري
+      # ===== Optional runtime =====
       - key: FINAL_CHUNK_QTY
         value: "2.0"
       - key: WAIT_NEXT_SIGNAL

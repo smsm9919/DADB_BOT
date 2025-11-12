@@ -1,5 +1,5 @@
 services:
-  - type: web
+  - type: worker
     name: gold-bot-bingx
     env: python
     plan: free
@@ -9,7 +9,6 @@ services:
     startCommand: python "dhb bingx.py"
 
     envVars:
-      # ===== Exchange & Market =====
       - key: EXCHANGE
         value: bingx
       - key: SYMBOL
@@ -25,7 +24,6 @@ services:
       - key: PORT
         value: 5000
 
-      # ===== BingX API (اضف القيم من لوحة Render) =====
       - key: BINGX_API_KEY
         sync: false
       - key: BINGX_API_SECRET
@@ -35,7 +33,6 @@ services:
       - key: BINGX_TESTNET
         value: "0"
 
-      # ===== Runtime (اختياري) =====
       - key: FINAL_CHUNK_QTY
         value: "2.0"
       - key: WAIT_NEXT_SIGNAL

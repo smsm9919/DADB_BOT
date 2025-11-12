@@ -97,7 +97,7 @@ ABSORPTION_RATIO = 0.65
 EFFICIENCY_THRESHOLD = 0.85
 
 # =================== SETTINGS ===================
-SYMBOL     = "XAU/USDT:USDT"  # Gold vs USDT
+SYMBOL     = "XAU-USDT"  # Gold vs USDT - BingX format
 INTERVAL   = os.getenv("INTERVAL", "15m")
 LEVERAGE   = int(os.getenv("LEVERAGE", 10))
 RISK_ALLOC = float(os.getenv("RISK_ALLOC", 0.30))  # 30% risk allocation
@@ -287,6 +287,37 @@ def ensure_leverage_mode():
     except Exception as e:
         log_w(f"ensure_leverage_mode: {e}")
 
+def verify_symbol():
+    """التحقق من صحة الرمز وعرض الرموز المتاحة"""
+    try:
+        ex.load_markets()
+        log_i(f"✅ Exchange loaded successfully")
+        
+        # عرض جميع الرموز المتاحة التي تحتوي على XAU
+        xau_symbols = [sym for sym in ex.markets.keys() if 'XAU' in sym]
+        log_i(f"📋 Available XAU symbols: {xau_symbols}")
+        
+        # التحقق من الرمز المحدد
+        if SYMBOL in ex.markets:
+            log_g(f"✅ Symbol {SYMBOL} is valid and available")
+            return True
+        else:
+            log_e(f"❌ Symbol {SYMBOL} not found in available markets")
+            log_w(f"🔄 Trying alternative symbol formats...")
+            
+            # محاولة تنسيقات بديلة
+            alternatives = ["XAUUSDT", "XAU_USDT", "GOLD-USDT"]
+            for alt in alternatives:
+                if alt in ex.markets:
+                    log_g(f"✅ Alternative symbol found: {alt}")
+                    return alt
+            
+            return False
+            
+    except Exception as e:
+        log_e(f"❌ Symbol verification failed: {e}")
+        return False
+
 # Initialize exchange
 try:
     load_market_specs()
@@ -305,7 +336,7 @@ def _is_doji(o,c,h,l,th=0.1):
 
 def _engulfing(po,pc,o,c, min_ratio=1.05):
     bull = (c>o) and (pc<po) and _body(po,pc)>0 and _body(o,c)>=min_ratio*_body(po,pc) and (o<=pc and c>=po)
-    bear = (c<o) and (pc>po) and _body(po,pc)>0 and __body(o,c)>=min_ratio*_body(po,pc) and (o>=pc and c<=po)
+    bear = (c<o) and (pc>po) and _body(po,pc)>0 and _body(o,c)>=min_ratio*_body(po,pc) and (o>=pc and c<=po)
     return bull, bear
 
 def _hammer_like(o,c,h,l, body_max=0.35, wick_ratio=2.0):
@@ -528,7 +559,7 @@ def detect_market_structure(df):
                 "choch_bullish": False, "choch_bearish": False, "liquidity_sweep": False}
     
     high = df['high'].astype(float)
-    low = df['low'].ast(float)
+    low = df['low'].astype(float)
     close = df['close'].astype(float)
     
     # تحديد الاتجاه
@@ -2778,6 +2809,13 @@ emit_snapshots = emit_snapshots_with_smc
 # =================== BOOT ===================
 if __name__ == "__main__":
     log_banner("XAU COUNCIL PROFESSIONAL BOT - SMART MONEY CONCEPTS")
+    
+    # التحقق من صحة الرمز أولاً
+    symbol_valid = verify_symbol()
+    if not symbol_valid:
+        log_e("❌ Invalid symbol configuration. Please check SYMBOL setting.")
+        sys.exit(1)
+    
     state = load_state() or {}
     state.setdefault("in_position", False)
 

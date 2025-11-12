@@ -216,7 +216,7 @@ ABSORPTION_RATIO = 0.65
 EFFICIENCY_THRESHOLD = 0.85
 
 # =================== SETTINGS ===================
-SYMBOL     = XAUT/USDT:USDT  # Gold vs USDT - BingX correct format
+SYMBOL     = "XAUT/USDT:USDT"  # Gold vs USDT - BingX correct format
 INTERVAL   = os.getenv("INTERVAL", "15m")
 LEVERAGE   = int(os.getenv("LEVERAGE", 10))
 RISK_ALLOC = float(os.getenv("RISK_ALLOC", 0.30))  # 30% risk allocation

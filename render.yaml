@@ -6,31 +6,39 @@ services:
     autoDeploy: true
 
     buildCommand: pip install -r requirements.txt
-    startCommand: python "dhb bingx.py"   # أو غيّر الاسم لو ملفك مختلف
+
+    # غيّر اسم الملف هنا لو سكربت التشغيل مختلف
+    # لو عندك main.py استخدم: python main.py
+    startCommand: python "dhb bingx.py"
 
     envVars:
+      # ===== Exchange & Market =====
       - key: EXCHANGE
         value: bingx
       - key: SYMBOL
         value: XAU/USDT
-      - key: RISK_ALLOC
-        value: 0.30
-      - key: LEVERAGE
-        value: 10
-      - key: POSITION_MODE
-        value: oneway
       - key: TIMEFRAME
         value: 15m
+      - key: POSITION_MODE
+        value: oneway
+      - key: LEVERAGE
+        value: 10
+      - key: RISK_ALLOC
+        value: 0.30
       - key: PORT
         value: 5000
 
-      # BingX API (ضيف القيم من Dashboard → Environment)
-      - key: API_KEY              # استخدم نفس أسماء مفاتيح نسختك القديمة لو الكود يقرأها كده
+      # ===== BingX API (أضف القيم من لوحة Render) =====
+      - key: API_KEY
         sync: false
       - key: API_SECRET
         sync: false
-      # أو بدّل للأسماء الخاصة:
-      # - key: BINGX_API_KEY
-      #   sync: false
-      # - key: BINGX_API_SECRET
-      #   sync: false
+      # (لو كودك يقرأ مفاتيح بأسماء BINGX_API_KEY/BINGX_API_SECRET بدّل المفتاحين فوق لنفس الأسماء)
+
+      # ===== Optional runtime =====
+      - key: FINAL_CHUNK_QTY
+        value: "2.0"
+      - key: WAIT_NEXT_SIGNAL
+        value: "1"
+      - key: LOOP_SLEEP_SEC
+        value: "6.0"

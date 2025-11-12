@@ -97,7 +97,7 @@ ABSORPTION_RATIO = 0.65
 EFFICIENCY_THRESHOLD = 0.85
 
 # =================== SETTINGS ===================
-SYMBOL     = "XAUT/USDT:USDT"  # Gold vs USDT - BingX correct format
+SYMBOL     = "XAU-USDT"  # Gold vs USDT - BingX correct format
 INTERVAL   = os.getenv("INTERVAL", "15m")
 LEVERAGE   = int(os.getenv("LEVERAGE", 10))
 RISK_ALLOC = float(os.getenv("RISK_ALLOC", 0.30))  # 30% risk allocation
@@ -237,45 +237,41 @@ def make_ex():
 
 ex = make_ex()
 
-# =================== EXCHANGE-SPECIFIC ADAPTERS ===================
-def exchange_specific_params(side, is_close=False):
-    """Handle BingX specific parameters"""
-    return {"positionSide": "LONG" if side == "buy" else "SHORT", "reduceOnly": is_close}
-
-def exchange_set_leverage(exchange, leverage, symbol):
-    """BingX leverage setting"""
-    try:
-        exchange.set_leverage(leverage, symbol, params={"side": "BOTH"})
-        log_g(f"✅ BINGX leverage set: {leverage}x")
-    except Exception as e:
-        log_w(f"⚠️ set_leverage warning: {e}")
-
-def exchange_set_margin_mode(exchange, symbol, margin_mode="isolated"):
-    """Set margin mode to isolated"""
-    try:
-        if hasattr(exchange, 'set_margin_mode'):
-            exchange.set_margin_mode(margin_mode, symbol)
-            log_g(f"✅ BINGX margin mode set: {margin_mode}")
-    except Exception as e:
-        log_w(f"⚠️ set_margin_mode warning: {e}")
-
-# =================== MARKET SPECS ===================
+# =================== MARKET SPECS ENHANCEMENT ===================
 MARKET = {}
 AMT_PREC = 0
 LOT_STEP = None
 LOT_MIN  = None
+MIN_QTY_EX = 0.01
+QTY_STEP = 3
 
 def load_market_specs():
-    global MARKET, AMT_PREC, LOT_STEP, LOT_MIN
+    global MARKET, AMT_PREC, LOT_STEP, LOT_MIN, MIN_QTY_EX, QTY_STEP
     try:
         ex.load_markets()
         MARKET = ex.markets.get(SYMBOL, {})
-        AMT_PREC = int((MARKET.get("precision", {}) or {}).get("amount", 3) or 3)  # Gold typically 3 decimals
-        LOT_STEP = (MARKET.get("limits", {}) or {}).get("amount", {}).get("step", 0.01)
-        LOT_MIN  = (MARKET.get("limits", {}) or {}).get("amount", {}).get("min", 0.01)
+        
+        # الحصول على حدود السوق بدقة
+        limits = MARKET.get("limits", {}) or {}
+        amount_limits = limits.get("amount", {}) or {}
+        precision_info = MARKET.get("precision", {}) or {}
+        
+        AMT_PREC = int(precision_info.get("amount", 3) or 3)
+        LOT_STEP = amount_limits.get("step", 0.01)
+        LOT_MIN = amount_limits.get("min", 0.01)
+        
+        # قيم مباشرة من السوق
+        MIN_QTY_EX = LOT_MIN
+        QTY_STEP = precision_info.get("amount")  # عدد الخانات العشرية
+        
         log_i(f"🎯 {SYMBOL} specs → precision={AMT_PREC}, step={LOT_STEP}, min={LOT_MIN}")
+        log_i(f"📊 Market limits: min={MIN_QTY_EX:.8f} | step={QTY_STEP}")
+        
     except Exception as e:
         log_w(f"load_market_specs: {e}")
+        # قيم افتراضية آمنة للذهب
+        MIN_QTY_EX = 0.01
+        QTY_STEP = 3
 
 def ensure_leverage_mode():
     try:
@@ -324,6 +320,137 @@ try:
     ensure_leverage_mode()
 except Exception as e:
     log_w(f"exchange init: {e}")
+
+# =================== ENHANCED QUANTITY CALCULATION ===================
+def _to_precision(q, decimals):
+    """تقريب الكمية حسب دقة السوق"""
+    try:
+        if decimals is None:
+            return float(q)
+        from decimal import Decimal, ROUND_DOWN
+        return float(Decimal(str(q)).quantize(Decimal('1.' + '0' * decimals), rounding=ROUND_DOWN))
+    except Exception as e:
+        log_w(f"Precision rounding error: {e}")
+        return float(q)
+
+def compute_size_enhanced(balance, price):
+    """حساب الكمية مع التحقق من الحدود"""
+    try:
+        if not balance or not price or price <= 0:
+            log_e("❌ Invalid balance or price for size calculation")
+            return 0.0
+
+        # حساب القيمة الاسمية
+        notional = balance * RISK_ALLOC * LEVERAGE
+        qty_raw = notional / price
+
+        log_i(f"💰 SIZING: balance={balance:.2f}, risk_alloc={RISK_ALLOC}, leverage={LEVERAGE}, price={price:.6f}")
+        log_i(f"📦 Raw quantity: {qty_raw:.8f}")
+
+        # تطبيق حدود السوق
+        qty_norm = _to_precision(qty_raw, QTY_STEP)
+        
+        # التحقق من الحد الأدنى
+        if qty_norm < MIN_QTY_EX:
+            log_w(f"🔄 Quantity below minimum: {qty_norm:.8f} < {MIN_QTY_EX:.8f}, using minimum")
+            qty_norm = MIN_QTY_EX
+
+        # التحقق من التعيين البيئي الإضافي
+        MIN_QTY_OVERRIDE = float(os.getenv("MIN_QTY_OVERRIDE", "0"))
+        if MIN_QTY_OVERRIDE > 0 and qty_norm < MIN_QTY_OVERRIDE:
+            log_i(f"🔄 Using override minimum: {MIN_QTY_OVERRIDE}")
+            qty_norm = MIN_QTY_OVERRIDE
+
+        # التحقق النهائي من الصحة
+        if qty_norm <= 0:
+            log_e(f"❌ Invalid quantity after normalization: {qty_norm:.8f}")
+            return 0.0
+
+        log_i(f"✅ Final quantity: {qty_norm:.8f} (min={MIN_QTY_EX:.8f}, step={QTY_STEP})")
+        return safe_qty(qty_norm)
+
+    except Exception as e:
+        log_e(f"❌ Size calculation error: {e}")
+        return 0.0
+
+# =================== ENHANCED safe_qty ===================
+def safe_qty(q):
+    """نسخة محسنة من safe_qty مع معالجة أفضل للحدود"""
+    try:
+        if q is None or q <= 0:
+            return 0.0
+            
+        # استخدام تقريب CCXT المباشر إذا كان متاحًا
+        try:
+            if hasattr(ex, 'amount_to_precision'):
+                qty_str = ex.amount_to_precision(SYMBOL, q)
+                qty_ccxt = float(qty_str)
+                if qty_ccxt > 0:
+                    return qty_ccxt
+        except Exception as e:
+            log_w(f"CCXT precision warning: {e}")
+
+        # الرجوع للتقريب اليدوي
+        q_rounded = _round_amt_enhanced(q)
+        
+        if q_rounded <= 0:
+            log_w(f"⚠️ Quantity rounded to zero: {q} -> {q_rounded}")
+            return 0.0
+            
+        return q_rounded
+        
+    except Exception as e:
+        log_e(f"❌ safe_qty error: {e}")
+        return 0.0
+
+def _round_amt_enhanced(q):
+    """نسخة محسنة من _round_amt"""
+    try:
+        from decimal import Decimal, ROUND_DOWN
+        d = Decimal(str(q))
+        
+        # تطبيق خطوة الكمية
+        if LOT_STEP and LOT_STEP > 0:
+            step = Decimal(str(LOT_STEP))
+            d = (d / step).quantize(Decimal('1.'), rounding=ROUND_DOWN) * step
+        
+        # تطبيق الدقة
+        prec = int(AMT_PREC) if AMT_PREC and AMT_PREC >= 0 else 3
+        d = d.quantize(Decimal('1.' + '0' * prec), rounding=ROUND_DOWN)
+        
+        # التحقق من الحد الأدنى
+        if LOT_MIN and LOT_MIN > 0 and d < Decimal(str(LOT_MIN)):
+            log_i(f"🔄 Rounding up to minimum: {d} -> {LOT_MIN}")
+            d = Decimal(str(LOT_MIN))
+        
+        result = float(d)
+        return result if result > 0 else 0.0
+        
+    except Exception as e:
+        log_w(f"Enhanced round error: {e}")
+        return max(0.0, float(q))
+
+# =================== EXCHANGE-SPECIFIC ADAPTERS ===================
+def exchange_specific_params(side, is_close=False):
+    """Handle BingX specific parameters"""
+    return {"positionSide": "LONG" if side == "buy" else "SHORT", "reduceOnly": is_close}
+
+def exchange_set_leverage(exchange, leverage, symbol):
+    """BingX leverage setting"""
+    try:
+        exchange.set_leverage(leverage, symbol, params={"side": "BOTH"})
+        log_g(f"✅ BINGX leverage set: {leverage}x")
+    except Exception as e:
+        log_w(f"⚠️ set_leverage warning: {e}")
+
+def exchange_set_margin_mode(exchange, symbol, margin_mode="isolated"):
+    """Set margin mode to isolated"""
+    try:
+        if hasattr(exchange, 'set_margin_mode'):
+            exchange.set_margin_mode(margin_mode, symbol)
+            log_g(f"✅ BINGX margin mode set: {margin_mode}")
+    except Exception as e:
+        log_w(f"⚠️ set_margin_mode warning: {e}")
 
 # =================== CANDLES MODULE ===================
 def _body(o,c): return abs(c-o)
@@ -480,7 +607,7 @@ def detect_liquidity_zones(df, window=20):
         return {"buy_liquidity": [], "sell_liquidity": []}
     
     high = df['high'].astype(float)
-    low = df['low'].astype(float)
+    low = df['low'].ast(float)
     volume = df['volume'].astype(float)
     
     # اكتشاف القمم والقيعان الهامة
@@ -1897,11 +2024,6 @@ def _round_amt(q):
     except (InvalidOperation, ValueError, TypeError):
         return max(0.0, float(q))
 
-def safe_qty(q): 
-    q = _round_amt(q)
-    if q<=0: log_w(f"qty invalid after normalize → {q}")
-    return q
-
 def fmt(v, d=6, na="—"):
     try:
         if v is None or (isinstance(v,float) and (math.isnan(v) or math.isinf(v))): return na
@@ -2108,10 +2230,16 @@ def emit_snapshots_with_smc(exchange, symbol, df, balance_fn=None, pnl_fn=None):
         return {"bm": None, "flow": None, "cv": {"b":0,"s":0,"score_b":0.0,"score_s":0.0,"ind":{}},
                 "mode": {"mode":"n/a"}, "gz": None, "footprint": {}, "wallet": ""}
 
-# =================== EXECUTION MANAGER ===================
+# =================== ENHANCED EXECUTION MANAGER ===================
 def open_market_enhanced(side, qty, price):
+    """نسخة محسنة من فتح الصفقات"""
     if qty <= 0: 
-        log_e("skip open (qty<=0)")
+        log_e("❌ skip open (qty<=0)")
+        return False
+    
+    # التحقق الإضافي من الكمية
+    if qty < MIN_QTY_EX:
+        log_e(f"❌ Quantity {qty:.8f} below minimum {MIN_QTY_EX:.8f}")
         return False
     
     df = fetch_ohlcv()
@@ -2161,7 +2289,7 @@ def open_market_enhanced(side, qty, price):
             "trail_tightened": False,
         })
         
-        log_g(f"✅ POSITION OPENED: {side.upper()} | mode={mode}")
+        log_g(f"✅ POSITION OPENED: {side.upper()} {qty:.6f} @ {price:.6f} | mode={mode}")
         return True
     
     return False
@@ -2287,10 +2415,7 @@ def _read_position():
     return 0.0, None, None
 
 def compute_size(balance, price):
-    effective = balance or 0.0
-    capital = effective * RISK_ALLOC * LEVERAGE
-    raw = max(0.0, capital / max(float(price or 0.0), 1e-9))
-    return safe_qty(raw)
+    return compute_size_enhanced(balance, price)
 
 def close_market_strict(reason="STRICT"):
     global compound_pnl, wait_for_next_signal_side
@@ -2805,6 +2930,12 @@ ultimate_council_voting_with_footprint = ultimate_council_professional
 manage_after_entry_ultimate = manage_after_entry_professional
 execute_trade_decision_with_footprint = execute_professional_trade
 emit_snapshots = emit_snapshots_with_smc
+
+# =================== ENVIRONMENT VARIABLES ===================
+# إضافة متغير بيئي اختياري كحارس إضافي
+MIN_QTY_OVERRIDE = float(os.getenv("MIN_QTY_OVERRIDE", "0"))
+if MIN_QTY_OVERRIDE > 0:
+    log_i(f"🎯 Using quantity override: {MIN_QTY_OVERRIDE}")
 
 # =================== BOOT ===================
 if __name__ == "__main__":

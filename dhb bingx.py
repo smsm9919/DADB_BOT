@@ -97,7 +97,7 @@ ABSORPTION_RATIO = 0.65
 EFFICIENCY_THRESHOLD = 0.85
 
 # =================== SETTINGS ===================
-SYMBOL     = "XAUT/USDT:USDT" # Gold vs USDT - BingX correct format
+SYMBOL     = "XAU-USDT"  # Gold vs USDT - BingX correct format
 INTERVAL   = os.getenv("INTERVAL", "15m")
 LEVERAGE   = int(os.getenv("LEVERAGE", 10))
 RISK_ALLOC = float(os.getenv("RISK_ALLOC", 0.30))  # 30% risk allocation
@@ -327,8 +327,10 @@ def _to_precision(q, decimals):
     try:
         if decimals is None:
             return float(q)
+        # تحويل أولي للتأكد من أننا نتعامل مع float
+        q_float = float(q)
         from decimal import Decimal, ROUND_DOWN
-        return float(Decimal(str(q)).quantize(Decimal('1.' + '0' * decimals), rounding=ROUND_DOWN))
+        return float(Decimal(str(q_float)).quantize(Decimal('1.' + '0' * decimals), rounding=ROUND_DOWN))
     except Exception as e:
         log_w(f"Precision rounding error: {e}")
         return float(q)
@@ -340,11 +342,15 @@ def compute_size_enhanced(balance, price):
             log_e("❌ Invalid balance or price for size calculation")
             return 0.0
 
+        # تحويل صريح للتأكد من النوع
+        balance_float = float(balance)
+        price_float = float(price)
+        
         # حساب القيمة الاسمية
-        notional = balance * RISK_ALLOC * LEVERAGE
-        qty_raw = notional / price
+        notional = balance_float * RISK_ALLOC * LEVERAGE
+        qty_raw = notional / price_float
 
-        log_i(f"💰 SIZING: balance={balance:.2f}, risk_alloc={RISK_ALLOC}, leverage={LEVERAGE}, price={price:.6f}")
+        log_i(f"💰 SIZING: balance={balance_float:.2f}, risk_alloc={RISK_ALLOC}, leverage={LEVERAGE}, price={price_float:.6f}")
         log_i(f"📦 Raw quantity: {qty_raw:.8f}")
 
         # تطبيق حدود السوق
@@ -432,8 +438,12 @@ def _round_amt_enhanced(q):
 
 # =================== EXCHANGE-SPECIFIC ADAPTERS ===================
 def exchange_specific_params(side, is_close=False):
-    """Handle BingX specific parameters"""
-    return {"positionSide": "LONG" if side == "buy" else "SHORT", "reduceOnly": is_close}
+    """Handle BingX specific parameters - ONE WAY MODE ONLY"""
+    # في وضع Oneway، لا نحدد positionSide
+    if is_close:
+        return {"reduceOnly": True}
+    else:
+        return {}
 
 def exchange_set_leverage(exchange, leverage, symbol):
     """BingX leverage setting"""
@@ -601,13 +611,33 @@ def rsi_ma_context(df):
     }
 
 # =================== SMART MONEY CONCEPTS (SMC) ===================
+def safe_smc_execution(func, *args, **kwargs):
+    """تنفيذ آمن لدوال SMC مع معالجة الأخطاء"""
+    try:
+        return func(*args, **kwargs)
+    except Exception as e:
+        log_w(f"SMC function {func.__name__} error: {e}")
+        # إرجاع قيم افتراضية آمنة
+        if "liquidity" in func.__name__:
+            return {"buy_liquidity": [], "sell_liquidity": []}
+        elif "fvg" in func.__name__:
+            return {"bullish_fvg": [], "bearish_fvg": []}
+        elif "market_structure" in func.__name__:
+            return {"trend": "neutral", "bos_bullish": False, "bos_bearish": False, 
+                    "choch_bullish": False, "choch_bearish": False, "liquidity_sweep": False}
+        elif "order_blocks" in func.__name__:
+            return {"bullish_ob": [], "bearish_ob": []}
+        else:
+            return {}
+
 def detect_liquidity_zones(df, window=20):
     """اكتشاف مناطق السيولة (Liquidity Pools)"""
     if len(df) < window * 2:
         return {"buy_liquidity": [], "sell_liquidity": []}
     
+    # استخدام astype بدلاً من ast
     high = df['high'].astype(float)
-    low = df['low'].ast(float)
+    low = df['low'].astype(float)
     volume = df['volume'].astype(float)
     
     # اكتشاف القمم والقيعان الهامة
@@ -644,6 +674,10 @@ def detect_fvg(df, threshold=0.1):
     """اكتشاف Fair Value Gaps (FVG)"""
     if len(df) < 3:
         return {"bullish_fvg": [], "bearish_fvg": []}
+    
+    # استخدام astype بدلاً من ast
+    high = df['high'].astype(float)
+    low = df['low'].astype(float)
     
     fvg_bullish = []
     fvg_bearish = []
@@ -685,6 +719,7 @@ def detect_market_structure(df):
         return {"trend": "neutral", "bos_bullish": False, "bos_bearish": False, 
                 "choch_bullish": False, "choch_bearish": False, "liquidity_sweep": False}
     
+    # استخدام astype بدلاً من ast
     high = df['high'].astype(float)
     low = df['low'].astype(float)
     close = df['close'].astype(float)
@@ -743,31 +778,37 @@ def detect_order_blocks(df):
     if len(df) < 10:
         return {"bullish_ob": [], "bearish_ob": []}
     
+    # استخدام astype بدلاً من ast
+    high = df['high'].astype(float)
+    low = df['low'].astype(float)
+    close = df['close'].astype(float)
+    open_price = df['open'].astype(float)
+    
     bullish_ob = []
     bearish_ob = []
     
     for i in range(5, len(df) - 5):
         # Order Block صاعد: شمعة هابطة كبيرة تليها شمعة صاعدة
-        if (df['close'].iloc[i] < df['open'].iloc[i] and  # شمعة هابطة
-            df['close'].iloc[i+1] > df['open'].iloc[i+1] and  # شمعة صاعدة تليها
-            abs(df['close'].iloc[i] - df['open'].iloc[i]) / df['open'].iloc[i] > OB_STRENGTH_THRESHOLD/100):  # حجم مناسب
+        if (close.iloc[i] < open_price.iloc[i] and  # شمعة هابطة
+            close.iloc[i+1] > open_price.iloc[i+1] and  # شمعة صاعدة تليها
+            abs(close.iloc[i] - open_price.iloc[i]) / open_price.iloc[i] > OB_STRENGTH_THRESHOLD/100):  # حجم مناسب
             
             bullish_ob.append({
-                'high': max(float(df['high'].iloc[i]), float(df['high'].iloc[i+1])),
-                'low': min(float(df['low'].iloc[i]), float(df['low'].iloc[i+1])),
-                'strength': abs(df['close'].iloc[i] - df['open'].iloc[i]) / df['open'].iloc[i] * 100,
+                'high': max(float(high.iloc[i]), float(high.iloc[i+1])),
+                'low': min(float(low.iloc[i]), float(low.iloc[i+1])),
+                'strength': abs(close.iloc[i] - open_price.iloc[i]) / open_price.iloc[i] * 100,
                 'time': df['time'].iloc[i]
             })
         
         # Order Block هابط: شمعة صاعدة كبيرة تليها شمعة هابطة
-        if (df['close'].iloc[i] > df['open'].iloc[i] and  # شمعة صاعدة
-            df['close'].iloc[i+1] < df['open'].iloc[i+1] and  # شمعة هابطة تليها
-            abs(df['close'].iloc[i] - df['open'].iloc[i]) / df['open'].iloc[i] > OB_STRENGTH_THRESHOLD/100):  # حجم مناسب
+        if (close.iloc[i] > open_price.iloc[i] and  # شمعة صاعدة
+            close.iloc[i+1] < open_price.iloc[i+1] and  # شمعة هابطة تليها
+            abs(close.iloc[i] - open_price.iloc[i]) / open_price.iloc[i] > OB_STRENGTH_THRESHOLD/100):  # حجم مناسب
             
             bearish_ob.append({
-                'high': max(float(df['high'].iloc[i]), float(df['high'].iloc[i+1])),
-                'low': min(float(df['low'].iloc[i]), float(df['low'].iloc[i+1])),
-                'strength': abs(df['close'].iloc[i] - df['open'].iloc[i]) / df['open'].iloc[i] * 100,
+                'high': max(float(high.iloc[i]), float(high.iloc[i+1])),
+                'low': min(float(low.iloc[i]), float(low.iloc[i+1])),
+                'strength': abs(close.iloc[i] - open_price.iloc[i]) / open_price.iloc[i] * 100,
                 'time': df['time'].iloc[i]
             })
     
@@ -828,6 +869,7 @@ def compute_vwap(df):
     if len(df) < 20:
         return {"vwap": 0, "deviation": 0, "signal": "neutral", "price_above_vwap": False}
     
+    # استخدام astype بدلاً من ast
     high = df['high'].astype(float)
     low = df['low'].astype(float)
     close = df['close'].astype(float)
@@ -864,7 +906,9 @@ def compute_advanced_momentum(df):
     if len(df) < 30:
         return {"momentum": 0, "acceleration": 0, "velocity": 0, "trend": "neutral", "strength": 0}
     
+    # استخدام astype بدلاً من ast
     close = df['close'].astype(float)
+    volume = df['volume'].astype(float)
     
     # السرعة (التغير في السعر)
     velocity = close.pct_change(5).iloc[-1] * 100
@@ -875,7 +919,6 @@ def compute_advanced_momentum(df):
         acceleration = (close.pct_change(5).iloc[-1] - close.pct_change(5).iloc[-2]) * 100
     
     # الزخم المرجح بالحجم
-    volume = df['volume'].astype(float)
     volume_weighted_momentum = (close.pct_change(3) * volume.rolling(3).mean()).iloc[-1] * 100
     
     # تحليل الاتجاه
@@ -903,6 +946,7 @@ def enhanced_volume_momentum(df, period=20):
     if len(df) < period + 5:
         return {"trend": "neutral", "strength": 0, "signal": 0}
     
+    # استخدام astype بدلاً من ast
     volume = df['volume'].astype(float)
     close = df['close'].astype(float)
     
@@ -1495,30 +1539,18 @@ def ultimate_council_professional(df):
         vwap = compute_vwap(df)
         advanced_momentum = compute_advanced_momentum(df)
         
-        # تحليل SMC المتقدم - مع معالجة الأخطاء
+        # استخدام التنفيذ الآمن لدوال SMC
         try:
-            liquidity_zones = detect_liquidity_zones(df)
+            liquidity_zones = safe_smc_execution(detect_liquidity_zones, df)
+            fvg_zones = safe_smc_execution(detect_fvg, df)
+            market_structure = safe_smc_execution(detect_market_structure, df)
+            order_blocks = safe_smc_execution(detect_order_blocks, df)
         except Exception as e:
-            log_w(f"SMC liquidity_zones error: {e}")
+            log_w(f"SMC analysis failed: {e}")
+            # قيم افتراضية
             liquidity_zones = {"buy_liquidity": [], "sell_liquidity": []}
-            
-        try:
-            fvg_zones = detect_fvg(df)
-        except Exception as e:
-            log_w(f"SMC fvg_zones error: {e}")
             fvg_zones = {"bullish_fvg": [], "bearish_fvg": []}
-            
-        try:
-            market_structure = detect_market_structure(df)
-        except Exception as e:
-            log_w(f"SMC market_structure error: {e}")
-            market_structure = {"trend": "neutral", "bos_bullish": False, "bos_bearish": False, 
-                               "choch_bullish": False, "choch_bearish": False, "liquidity_sweep": False}
-            
-        try:
-            order_blocks = detect_order_blocks(df)
-        except Exception as e:
-            log_w(f"SMC order_blocks error: {e}")
+            market_structure = {"trend": "neutral", "bos_bullish": False, "bos_bearish": False}
             order_blocks = {"bullish_ob": [], "bearish_ob": []}
         
         # نظام التصويت المحترف

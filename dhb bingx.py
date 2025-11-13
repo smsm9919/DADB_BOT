@@ -58,10 +58,10 @@ FLOW_SPIKE_Z = 1.60
 CVD_SMOOTH = 8
 
 # =================== SETTINGS ===================
-SYMBOL     = os.getenv("SYMBOL", "XAUT/USDT:USDT")
+SYMBOL     = "XAUT/USDT:USDT"  # Gold vs USDT - BingX correct format
 INTERVAL   = os.getenv("INTERVAL", "15m")
 LEVERAGE   = int(os.getenv("LEVERAGE", 10))
-RISK_ALLOC = float(os.getenv("RISK_ALLOC", 0.30))
+RISK_ALLOC = float(os.getenv("RISK_ALLOC", 0.30))  # 30% risk allocation
 POSITION_MODE = os.getenv("BINGX_POSITION_MODE", "oneway")
 
 # RF Settings
